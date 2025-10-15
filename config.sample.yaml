@@ -1,0 +1,63 @@
+# Data Splitter - sample configuration
+# Copy this file to `config.yaml` and edit values before running.
+# - Use this sample as a template for staging/production
+# - Fields marked <REPLACE> must be customized for your environment
+
+version: "1.0"
+
+# Database connection
+# Supported types: mysql, postgres, sqlite
+database:
+  type: "mysql"          # mysql, postgres, sqlite
+  host: "127.0.0.1"     # <REPLACE> host of the source DB
+  port: 3306              # port of the DB
+  user: "root"          # <REPLACE> DB user
+  password: "changeme"  # <REPLACE> DB password
+  source_db: "company"  # source database name
+
+# Tables to sync - enable/disable and configure per table
+tables:
+  - name: "mockup_user_document"    # table name in source
+    enabled: true
+    split_column: "created_at"      # column used for YEAR()/partition filter
+    archive_pattern: "company_{year}" # target archive DB pattern; {year} will be substituted
+
+  # example of disabled table
+  - name: "user_activities"
+    enabled: false
+    split_column: "activity_date"
+    archive_pattern: "company_{year}"
+
+# Archive settings
+archive:
+  # Years to process. Use a list of integers. Change to the years you want to archive.
+  years:
+    - 2024
+    # - 2023
+    # - 2022
+
+  options:
+    batch_size: 500              # number of rows to process per batch (tune for performance)
+    # resume_offset: 0           # (optional) if set, resume from this offset for the table/year
+    delete_after_archive: false  # if true, delete from source after successful archive
+    create_archive_db: true      # create target archive DB if not exists
+    dry_run: true                # if true, do not perform INSERT/DELETE (safe testing)
+
+# Processing / runtime
+processing:
+  log_level: "info"               # debug|info|warn|error
+  log_path: "logs/data-splitter.log"
+  continue_on_error: false         # if true, continue on non-fatal row errors
+
+# Optional: runtime overrides (examples for running in CI)
+# You can set environment vars or pass CLI flags to override config values.
+# Examples:
+#   export YEAR=2024
+#   ./data-splitter --year=${YEAR} --dry-run
+
+# Quick checklist before running in production:
+# 1) Make a backup (mysqldump or snapshot) of source DB/tables
+# 2) Run with `dry_run: true` to verify counts and output
+# 3) Verify sample rows (random sampling) in the archive DB
+# 4) When ready, set `dry_run: false` and `delete_after_archive: true` then run
+# 5) Monitor logs and run post-run validation (source count vs archive count)
