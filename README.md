@@ -96,191 +96,94 @@ A Go-based tool for automated database archiving with yearly data splitting. Thi
 - **Configuration-Driven**: YAML-based configuration for flexible setup
 - **Dry Run Support**: Test configurations without modifying data
 - **Multi-table Support**: Process multiple tables with different configurations
-- **make-sync Integration**: Designed to work with make-sync CI/CD pipelines
+# Data Splitter
 
-## Prerequisites
+Panduan singkat (Bahasa Indonesia) untuk membangun dan menjalankan tool
+`data-splitter`. README ini berfokus pada penggunaan praktis, konfigurasi,
+penanganan secret lokal (`.env`), dan output yang aman untuk pipeline.
 
-- Go 1.19+
-- MariaDB/MySQL database
-- Access to source and archive databases
+## Ringkasan
 
-## Installation
+- Tool ini memindahkan data dari tabel sumber ke database arsip per-tahun.
+- Menyediakan batch processing, resume, dan fallback insert untuk kasus error
+- Mengeluarkan baris PROGRESS/FINAL yang machine-friendly ke stdout agar CI dapat
+  memantau progres tanpa terpengaruh oleh UI interaktif.
 
-1. Clone the repository
-2. Build the application:
-   ```bash
-   go build -o data-splitter ./cmd
-   ```
+## Build
 
-## Configuration
+Pastikan Go toolchain terpasang lalu di folder project jalankan:
 
-Create a `config.yaml` file in the project root:
+```bash
+cd data-splitter
+go build ./...
+```
+
+Binary akan terbentuk di folder saat ini.
+
+## Konfigurasi (`config.yaml`)
+
+Contoh file `config.yaml` (sesuaikan):
 
 ```yaml
-# Data Splitter Configuration
 version: "1.0"
 
-# Database connection
 database:
-  type: "mysql"  # mysql, postgres, sqlite
-  host: "localhost"
-  port: 3306
-  user: "your_user"
-  password: "your_password"
-  source_db: "source_database"
+  type: "${DB_TYPE}"
+  host: "${DB_HOST}"
+  port: ${DB_PORT}
+  user: "${DB_USER}"
+  password: "${DB_PASSWORD}"
+  source_db: "${DB_SOURCE_DB}"
 
-# Tables to sync
 tables:
-  - name: "user_documents"
+  - name: "mockup_user_document"
     enabled: true
-    split_column: "created_at"  # Column for YEAR() filtering
-    archive_pattern: "archive_{year}"  # Archive DB naming pattern
-  - name: "logs"
-    enabled: false  # Skip this table
-    split_column: "timestamp"
-    archive_pattern: "logs_{year}"
+    split_column: "created_at"
+    archive_pattern: "artywiz_{year}"
 
-# Archive settings
 archive:
   years:
-    - 2020
-    - 2021
-    - 2022
-    - 2023
-    - 2024
+    - 2025
   options:
-    batch_size: 1000
-    delete_after_archive: true  # Delete from source after successful migration
-    create_archive_db: true    # Auto-create archive databases
-    dry_run: false             # Test run without actual data changes
+    batch_size: 100
+    delete_after_archive: false
+    create_archive_db: true
+    dry_run: false
 
-# Processing
 processing:
-  workers: 4  # Concurrent workers
-  log_level: "info"  # debug, info, warn, error
-  continue_on_error: false  # Stop on first error or continue
+  log_level: "info"
+  log_path: "logs/data-splitter.log"
+  continue_on_error: true
+  heartbeat_batch_interval: 10
 ```
 
-### Configuration Parameters
+Catatan:
+- `config.yaml` dapat mengandung placeholder `${VAR}` yang akan diisi dari
+  environment saat aplikasi dijalankan. Ini memungkinkan config dapat di-commit
+  tanpa menyertakan secret.
 
-#### Database
-- `type`: Database type (currently only "mysql" supported)
-- `host`: Database host
-- `port`: Database port
-- `user`: Database username
-- `password`: Database password
-- `source_db`: Source database name
+## Menyimpan secret lokal (.env)
 
-#### Tables
-- `name`: Table name to process
-- `enabled`: Whether to process this table
-- `split_column`: Date/datetime column for year filtering
-- `archive_pattern`: Pattern for archive database names (use `{year}` placeholder)
+Untuk pengembangan lokal, buat file `.env` (pastikan tidak di-commit):
 
-#### Archive
-- `years`: List of years to process
-- `options.batch_size`: Number of rows to process in each batch
-- `options.delete_after_archive`: Remove data from source after successful migration
-- `options.create_archive_db`: Automatically create archive databases
-- `options.dry_run`: Test configuration without modifying data
-
-#### Processing
-- `workers`: Number of concurrent workers (future enhancement)
-- `log_level`: Logging verbosity
-- `continue_on_error`: Continue processing other tables/years on error
-
-## Usage
-
-### Basic Usage
-
-```bash
-# Run with default config.yaml
-./data-splitter
-
-# Run with custom config file
-./data-splitter -config custom-config.yaml
+```
+DB_TYPE=mysql
+DB_HOST=localhost
+DB_PORT=3307
+DB_USER=root
+DB_PASSWORD=changeme
+DB_SOURCE_DB=artywiz
 ```
 
-### Dry Run (Recommended First)
+Loader akan memuat `.env` (pakai `godotenv`) dan mengisi placeholder `${...}`
+dalam `config.yaml`. Jika CI/production sudah menyediakan env vars, nilai CI
+akan lebih prioritas dan tidak akan ditimpa oleh `.env`.
 
-Set `dry_run: true` in config.yaml to test without modifying data:
+Pastikan `data-splitter/.gitignore` berisi `.env` dan `logs/` (sudah ditambahkan).
 
-```bash
-./data-splitter
-```
+## Output untuk pipeline (PROGRESS/FINAL)
 
-This will:
-- Validate configuration
-- Test database connections
-- Log what would be processed
-- Exit without making changes
-
-### Production Run
-
-After successful dry run:
-
-1. Set `dry_run: false` in config.yaml
-2. Run the migration:
-   ```bash
-   ./data-splitter
-   ```
-
-## make-sync Integration
-
-This tool is designed to work with make-sync pipelines. Example pipeline configuration:
-
-```yaml
-# .sync_pipelines/archive-data.yaml
-version: "1.0"
-
-jobs:
-  prepare:
-    commands:
-      - "cd data-splitter && go build -o data-splitter ./cmd"
-    artifacts:
-      - "data-splitter"
-
-  archive:
-    dependencies: ["prepare"]
-    commands:
-      - "cd data-splitter && ./data-splitter"
-    environment:
-      - "LOG_LEVEL=info"
-```
-
-## How It Works
-
-1. **Configuration Loading**: Reads and validates YAML configuration
-2. **Database Connection**: Establishes connections to source database
-3. **Table Processing**: For each enabled table:
-   - Gets table schema from source
-   - Creates archive database (if configured)
-   - Creates table structure in archive database
-   - Migrates data year by year using batch processing
-   - Validates migration success
-   - Optionally deletes migrated data from source
-
-## Logging
-
-The application uses structured logging with the following levels:
-- `debug`: Detailed operation information
-- `info`: General progress and status
-- `warn`: Non-critical issues
-- `error`: Errors that may affect operation
-- `fatal`: Critical errors that stop execution
-
-Set log level via `LOG_LEVEL` environment variable or `processing.log_level` config.
-
-### Additional runtime signals for CI / parsers
-
-- `LOG_TAIL_LINES` (env): When a fatal error occurs the program prints a tail of the
-  structured log file to stderr to aid debugging. `LOG_TAIL_LINES` lets you control how
-  many lines are printed. Example: `LOG_TAIL_LINES=50` (default depends on caller; the
-  code uses 200 when not overridden by env).
-
-- `PROGRESS` / `FINAL` lines (stdout): The program emits machine-friendly one-line
-  progress heartbeats to stdout so CI runners or parsers can track progress without
-  being confused by interactive ANSI output. Example lines:
+Tool mencetak baris ringkas ke stdout yang mudah diparse oleh pipeline. Contoh:
 
 ```
 PROGRESS table=users year=2025 processed=0 total=0 batch=0 status=started
@@ -290,80 +193,63 @@ PROGRESS table=users year=2025 processed=96716 total=96716 batch=97 status=compl
 FINAL table=users year=2025 processed=96716 duration=1h23m45s exit=0
 ```
 
-- `HEARTBEAT_BATCH_INTERVAL` (concept): The heartbeat is emitted every N batches. By
-  default the code emits a heartbeat every 10 batches. This value may later be
-  configurable via an env var (e.g., `HEARTBEAT_BATCH_INTERVAL`) if you want a
-  different frequency for long/short batch sizes. The heartbeat frequency controls
-  how often you see `PROGRESS` lines — increasing it reduces stdout churn but
-  provides coarser progress updates.
+- `PROGRESS` dicetak periodik setiap N batch (konfigurasi `heartbeat_batch_interval`).
+- Spinner/interactive UI ditulis ke stderr agar tidak mengganggu stdout yang dibaca
+  oleh pipeline.
 
-### Using secrets and placeholders in config.yaml
+Jika terjadi error fatal, program akan mencetak tail dari log file ke stderr dan
+menuliskan `FATAL: ...` lalu keluar dengan exit code non-zero.
 
-If you want to commit `config.yaml` but keep secrets out of the repo, you can use
-OS environment variable placeholders in the YAML and store secrets in a local
-`.env` file (not committed). Example in `config.yaml`:
+## LOG_TAIL_LINES
 
-```yaml
-database:
-  host: "${DB_HOST}"
-  user: "${DB_USER}"
-  password: "${DB_PASSWORD}"
-```
+Saat terjadi error kritis, tool akan mencetak sejumlah baris terakhir dari file log
+(`processing.log_path`) ke stderr untuk membantu debugging. Jumlah baris bisa
+diatur lewat env `LOG_TAIL_LINES` (opsional).
 
-The loader will automatically load a `.env` file (if present) and expand
-`${VAR}` placeholders using the process environment. `.env` values do not
-override existing environment variables; this allows CI-provided env to take
-precedence.
+## HEARTBEAT_BATCH_INTERVAL
 
-## Error Handling
+`heartbeat_batch_interval` menentukan frekuensi heartbeat (berapa batch antara
+PROGRESS lines). Default 10. Pilih nilai yang sesuai berdasarkan `batch_size` dan
+besar total data:
 
-- **Connection Errors**: Fail fast on database connection issues
-- **Schema Errors**: Stop processing if table schema cannot be retrieved
-- **Migration Errors**: Validate each migration and rollback on failure
-- **Validation Errors**: Check row counts between source and archive
+- Nilai kecil (1-5): visibilitas tinggi, tapi banyak output.
+- Nilai sedang (10): seimbang.
+- Nilai besar (50-100): output lebih sedikit, visibilitas lebih jarang.
 
-## Troubleshooting
+## Cara Menjalankan
 
-### Common Issues
+Local (menggunakan .env):
 
-1. **Connection Refused**: Check database host, port, credentials
-2. **Table Not Found**: Verify table names in configuration
-3. **Column Not Found**: Ensure `split_column` exists and is date/datetime type
-4. **Permission Denied**: Check database user privileges for CREATE DATABASE, INSERT, DELETE
-
-### Debug Mode
-
-Enable debug logging:
 ```bash
-LOG_LEVEL=debug ./data-splitter
+cd data-splitter
+./data-splitter --config config.yaml
 ```
 
-## Architecture
+CI (non-interactive):
 
-```
-cmd/
-  main.go                 # Application entry point
-internal/
-  config/
-    config.go            # Configuration loading and validation
-  database/
-    connection.go        # Database connection management
-    schema.go           # Schema discovery and table creation
-    migration.go        # Data migration logic
-pkg/
-  types/
-    types.go            # Configuration data structures
+```bash
+CI=true ./data-splitter --config config.yaml >stdout.log 2>stderr.log
 ```
 
-## Future Enhancements
+Periksa `logs/data-splitter.log` untuk full structured logs.
 
-- Support for PostgreSQL and SQLite
-- Concurrent processing of multiple tables
-- Compression of archived data
-- Automated backup before migration
-- Web UI for monitoring and configuration
-- REST API for programmatic control
+## Troubleshooting singkat
 
-## License
+- Jika kamu melihat SQL atau pesan besar di stdout — pastikan `LOG_LEVEL` dan
+  `setupLogging` sudah benar dan `config.processing.log_path` mengarahkan ke file.
+- Untuk multi-line secret (mis. PEM private key) gunakan file-mounts/secret
+  mounts dan referensikan path di config (mis. `ssl_key_file: "/run/secrets/key.pem"`).
 
-[Your License Here]
+## Rekap perubahan penting
+
+- PROGRESS/FINAL one-liners untuk pipeline-safe parsing
+- Spinner ke stderr
+- `LOG_TAIL_LINES` support untuk tail-on-error
+- `HEARTBEAT_BATCH_INTERVAL` configurable
+- `.env` support via godotenv (tidak menimpa CI env)
+
+---
+
+Jika mau, saya bisa menambahkan skrip `scripts/verify-ui.sh` untuk memvalidasi
+perilaku interactive vs CI, atau menambahkan helper untuk membaca secret file
+otomatis dari config (file-ref). Beritahu saya mana yang diinginkan.
