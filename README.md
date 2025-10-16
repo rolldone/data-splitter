@@ -1,10 +1,16 @@
 # Data Splitter
 
-Panduan singkat untuk membangun, menjalankan, dan memverifikasi UI progress (progress bar + spinner) serta pemisahan log di project `data-splitter`.
+Data Splitter adalah alat baris perintah untuk memindahkan data historis dari
+tabel sumber ke database arsip per-tahun. Tool ini berguna untuk mengarsipkan
+data besar berdasarkan kolom tanggal (mis. created_at), menyalin struktur
+tabel ke database arsip, dan melakukan migrasi data dalam batch yang dapat
+di-resume. Outputnya dirancang agar aman dipakai di pipeline CI: ringkasan
+progres (PROGRESS/FINAL) dicetak ke stdout untuk parsing oleh runner, sementara
+log terstruktur lengkap ditulis ke file.
 
-Semua instruksi ada dalam Bahasa Indonesia dan fokus pada verifikasi bahwa:
-- UI interaktif (progress bar + spinner) menulis ke stdout,
-- Semua log terstruktur (logrus + standard log) ditulis ke file log (default `logs/data-splitter.log`) sehingga tidak mengacaukan output pipeline/runner.
+Semua instruksi di README ini dalam Bahasa Indonesia.
+
+Semua log terstruktur (logrus + standard log) ditulis ke file log (default `logs/data-splitter.log`) sehingga tidak mengacaukan output pipeline/runner.
 
 Catatan singkat soal perilaku:
 - UI akan otomatis dinonaktifkan jika tidak berjalan di TTY atau jika environment `CI=true`.
