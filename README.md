@@ -8,86 +8,215 @@ di-resume. Outputnya dirancang agar aman dipakai di pipeline CI: ringkasan
 progres (PROGRESS/FINAL) dicetak ke stdout untuk parsing oleh runner, sementara
 log terstruktur lengkap ditulis ke file.
 
-Semua instruksi di README ini dalam Bahasa Indonesia.
+## Fitur Utama
 
-Semua log terstruktur (logrus + standard log) ditulis ke file log (default `logs/data-splitter.log`) sehingga tidak mengacaukan output pipeline/runner.
+- **Pembagian Data Berdasarkan Tahun**: Secara otomatis membagi data berdasarkan kolom tanggal yang dapat dikonfigurasi
+- **Sinkronisasi Skema**: Menyalin struktur tabel ke database arsip
+- **Batch Processing**: Ukuran batch yang dapat dikonfigurasi untuk migrasi data yang efisien
+- **Keamanan Transaksi**: Memvalidasi migrasi dan mendukung rollback jika gagal
+- **Konfigurasi-Driven**: Setup yang fleksibel menggunakan file YAML
+- **Dry Run Support**: Test konfigurasi tanpa memodifikasi data
+- **Multi-table Support**: Memproses multiple tabel dengan konfigurasi berbeda
 
-Catatan singkat soal perilaku:
-- UI akan otomatis dinonaktifkan jika tidak berjalan di TTY atau jika environment `CI=true`.
-- Override manual tersedia dengan `NO_SPINNER=1` dan/atau `NO_PROGRESS=1`.
+## Prasyarat
 
-Prasyarat
-- Go toolchain terpasang (go 1.18+ direkomendasikan).
+- Go toolchain terpasang (Go 1.18+ direkomendasikan)
 
-1) Build binary
+## Build
 
-Jalankan dari folder project:
+### Linux/macOS
 
 ```bash
-cd /path/to/data-splitter
+cd data-splitter
 go build -ldflags "-X main.projectDir=$(pwd)" -o data-splitter ./cmd
 ```
 
-2) Run interaktif (lihat progress & spinner)
+### Windows
 
-Jalankan binary seperti biasa (tambahkan `--config` jika repo kamu memakai flag):
+Untuk Windows, gunakan cross-compilation dari Linux/macOS:
 
 ```bash
-./data-splitter
-# atau jika perlu config
+cd data-splitter
+./build-cross-platform.sh
+```
+
+Atau build langsung di Windows dengan Go:
+
+```cmd
+cd data-splitter
+go build -ldflags "-X main.projectDir=%cd%" -o data-splitter.exe .\cmd
+```
+
+### Cross-platform Build
+
+Script `build-cross-platform.sh` akan membuat binary untuk semua platform:
+
+```bash
+./build-cross-platform.sh
+```
+
+Binary akan tersedia di folder `dist/` untuk Linux, Windows, dan macOS.
+
+## Instalasi Global
+
+### Linux/macOS
+
+```bash
+cd data-splitter
+./install.sh
+```
+
+Untuk uninstall:
+
+```bash
+cd data-splitter
+./uninstall.sh
+```
+
+### Windows
+
+Untuk Windows, ikuti panduan di `WINDOWS_INSTALL.md` atau gunakan script yang tersedia:
+
+```powershell
+# Install (PowerShell recommended)
+.\install-windows.ps1 -BinaryPath "path\to\data-splitter-windows-amd64.exe"
+
+# Uninstall
+.\uninstall-windows.ps1
+```
+
+```cmd
+# Install (batch, no admin required)
+install-windows.bat "path\to\data-splitter-windows-amd64.exe"
+
+# Uninstall
+uninstall-windows.bat
+```
+
+## Konfigurasi (`config.yaml`)
+
+Contoh file `config.yaml`:
+
+```yaml
+version: "1.0"
+
+database:
+  type: "${DB_TYPE}"
+  host: "${DB_HOST}"
+  port: ${DB_PORT}
+  user: "${DB_USER}"
+  password: "${DB_PASSWORD}"
+  source_db: "${DB_SOURCE_DB}"
+
+tables:
+  - name: "mockup_user_document"
+    enabled: true
+    split_column: "created_at"
+    archive_pattern: "artywiz_{year}"
+
+archive:
+  years:
+    - 2025
+  options:
+    batch_size: 100
+    delete_after_archive: false
+    create_archive_db: true
+    dry_run: false
+
+processing:
+  log_level: "info"
+  log_path: "logs/data-splitter.log"
+  continue_on_error: true
+  heartbeat_batch_interval: 10
+```
+
+**Catatan:**
+- `config.yaml` dapat menggunakan placeholder `${VAR}` yang akan diisi dari environment variable
+- Ini memungkinkan config dapat di-commit tanpa menyertakan secret
+
+## Menyimpan Secret Lokal (.env)
+
+Untuk pengembangan lokal, buat file `.env`:
+
+```
+DB_TYPE=mysql
+DB_HOST=localhost
+DB_PORT=3307
+DB_USER=root
+DB_PASSWORD=changeme
+DB_SOURCE_DB=artywiz
+```
+
+Loader akan memuat `.env` menggunakan `godotenv` dan mengisi placeholder dalam `config.yaml`.
+
+## Cara Menjalankan
+
+### Local Development
+
+```bash
+cd data-splitter
 ./data-splitter --config config.yaml
-# atau lihat informasi direktori
+```
+
+### CI/CD Pipeline
+
+```bash
+CI=true ./data-splitter --config config.yaml >stdout.log 2>stderr.log
+```
+
+### Lihat Informasi Direktori
+
+```bash
 ./data-splitter --info
 ```
 
-Yang harus diverifikasi:
-- Di terminal seharusnya terlihat progress bar yang bergerak dan spinner yang menunjukkan aktivtas.
-- File log default ada di `logs/data-splitter.log`. Periksa dengan:
-
-```bash
-tail -n 200 logs/data-splitter.log
+Output:
+```
+working_dir: /path/to/current/directory
+project_dir: /path/to/data-splitter/source
 ```
 
-Pastikan log hanya berisi entri structured (Info/Debug/Warning) bukan karakter progress bar.
+## Output untuk Pipeline
 
-3) Run non-interactive / CI mode
+Tool mencetak baris ringkas ke stdout yang mudah diparse oleh pipeline:
 
-Untuk mensimulasikan environment CI (UI harus auto-disable):
-
-```bash
-CI=true ./data-splitter
+```
+PROGRESS table=users year=2025 processed=0 total=0 batch=0 status=started
+PROGRESS table=users year=2025 processed=1000 total=96716 batch=10
+PROGRESS table=users year=2025 processed=96716 total=96716 batch=97 status=completed duration=1h23m45s
+FINAL table=users year=2025 processed=96716 duration=1h23m45s exit=0
 ```
 
-Atau paksa disable UI dengan env:
+## Flag yang Tersedia
 
-```bash
-NO_SPINNER=1 NO_PROGRESS=1 ./data-splitter
-```
+- `--config`: Path ke file konfigurasi (default: config.yaml)
+- `--info`: Tampilkan informasi direktori working dan project
 
-Verifikasi:
-- Di terminal seharusnya tidak ada progress bar atau spinner.
-- Semua log tetap ada di file `logs/data-splitter.log`.
+## Environment Variables
 
-4) Menangkap stdout untuk melihat apa yang pipeline akan lihat
+- `CI=true`: Disable UI untuk environment CI
+- `NO_SPINNER=1`: Disable spinner
+- `NO_PROGRESS=1`: Disable progress bar
+- `LOG_LEVEL`: Set log level (debug/info/warn/error)
+- `LOG_TAIL_LINES`: Jumlah baris log yang ditampilkan saat error
 
-Jika pipeline capture stdout, jalankan:
+## Troubleshooting
 
-```bash
-./data-splitter > stdout.capture 2>&1
-# interactive run akan menulis UI ke stdout (expected)
+- Jika melihat SQL di stdout, pastikan `setupLogging` sudah benar
+- Pastikan tidak ada kode yang menulis log ke stdout secara eksplisit
+- Untuk secret multi-line, gunakan file mounts
 
-CI=true ./data-splitter > stdout.capture 2>&1
-# CI run seharusnya punya sedikit atau tidak ada UI artifacts di stdout.capture
-```
+## Perubahan Penting
 
-5) Troubleshooting singkat
-
-- Jika kamu melihat SQL atau keluaran besar lain di stdout, pastikan `setupLogging` di `cmd/main.go` dieksekusi sebelum koneksi DB dibuat.
-- Pastikan tidak ada kode yang secara eksplisit menulis log ke stdout (fmt.Print*). Saya sudah memeriksa repo dan tidak menemukan `fmt.Print*` di file utama.
-
-6) Opsional: verifikasi otomatis (skrip)
-
-Saya bisa menambahkan skrip helper `scripts/verify-ui.sh` yang menjalankan langkah-langkah di atas otomatis dan menuliskan ringkasan. Beri tahu jika kamu mau saya tambahkan.
+- PROGRESS/FINAL output untuk pipeline parsing
+- Spinner ke stderr untuk menghindari interferensi dengan stdout
+- Support LOG_TAIL_LINES untuk debugging error
+- HEARTBEAT_BATCH_INTERVAL yang dapat dikonfigurasi
+- Support .env via godotenv
+- Flag --info untuk informasi direktori
+- Flag --config untuk override path konfigurasi
+- Cross-platform build support
+- Windows installation scripts
 
 --
 Dokumentasi ini menambahkan instruksi verifikasi UI vs log dan env override. Jika kamu ingin saya commit skrip verifikasi otomatis atau menambahkan contoh konfigurasi `config.sample.yaml` yang menampilkan opsi `NO_SPINNER`/`NO_PROGRESS`, beri tahu dan saya akan tambahkan.
