@@ -6,3 +6,5 @@ logs/
 *.so
 *.dylib
 /data-splitter
+# Cross-platform build output
+dist/

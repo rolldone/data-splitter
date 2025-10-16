@@ -119,6 +119,8 @@ penanganan secret lokal (`.env`), dan output yang aman untuk pipeline.
 
 ## Build
 
+### Linux/macOS
+
 Pastikan Go toolchain terpasang lalu di folder project jalankan:
 
 ```bash
@@ -126,7 +128,84 @@ cd data-splitter
 go build -ldflags "-X main.projectDir=$(pwd)" -o data-splitter ./cmd
 ```
 
+### Windows
+
+Untuk Windows, gunakan cross-compilation dari Linux/macOS:
+
+```bash
+cd data-splitter
+./build-cross-platform.sh
+```
+
+Atau build langsung di Windows dengan Go:
+
+```cmd
+cd data-splitter
+go build -ldflags "-X main.projectDir=%cd%" -o data-splitter.exe .\cmd
+```
+
+### Cross-platform Build
+
+Script `build-cross-platform.sh` akan membuat binary untuk semua platform:
+
+```bash
+./build-cross-platform.sh
+```
+
+Binary akan tersedia di folder `dist/` untuk Linux, Windows, dan macOS.
+
 Binary akan terbentuk di folder saat ini dengan informasi project directory yang embedded.
+
+## Instalasi Global
+
+### Linux/macOS
+
+Untuk menginstall data-splitter secara global agar bisa dijalankan dari mana saja:
+
+```bash
+cd data-splitter
+./install.sh
+```
+
+Untuk uninstall:
+
+```bash
+cd data-splitter
+./uninstall.sh
+```
+
+Atau manual:
+
+```bash
+# Build dengan project directory embedded
+go build -ldflags "-X main.projectDir=$(pwd)" -o data-splitter ./cmd
+
+# Install ke /usr/local/bin
+sudo cp data-splitter /usr/local/bin/
+sudo chmod +x /usr/local/bin/data-splitter
+```
+
+### Windows
+
+Untuk Windows, ikuti panduan di `WINDOWS_INSTALL.md` atau gunakan script yang tersedia:
+
+```powershell
+# Install (PowerShell recommended)
+.\install-windows.ps1 -BinaryPath "path\to\data-splitter-windows-amd64.exe"
+
+# Uninstall
+.\uninstall-windows.ps1
+```
+
+```cmd
+# Install (batch, no admin required)
+install-windows.bat "path\to\data-splitter-windows-amd64.exe"
+
+# Uninstall
+uninstall-windows.bat
+```
+
+Setelah install, Anda bisa menjalankan `data-splitter` dari direktori mana saja.
 
 ## Konfigurasi (`config.yaml`)
 
