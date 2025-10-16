@@ -25,7 +25,7 @@ Jalankan dari folder project:
 
 ```bash
 cd /path/to/data-splitter
-go build -o data-splitter ./...
+go build -ldflags "-X main.projectDir=$(pwd)" -o data-splitter ./cmd
 ```
 
 2) Run interaktif (lihat progress & spinner)
@@ -36,6 +36,8 @@ Jalankan binary seperti biasa (tambahkan `--config` jika repo kamu memakai flag)
 ./data-splitter
 # atau jika perlu config
 ./data-splitter --config config.yaml
+# atau lihat informasi direktori
+./data-splitter --info
 ```
 
 Yang harus diverifikasi:
@@ -121,10 +123,10 @@ Pastikan Go toolchain terpasang lalu di folder project jalankan:
 
 ```bash
 cd data-splitter
-go build ./...
+go build -ldflags "-X main.projectDir=$(pwd)" -o data-splitter ./cmd
 ```
 
-Binary akan terbentuk di folder saat ini.
+Binary akan terbentuk di folder saat ini dengan informasi project directory yang embedded.
 
 ## Konfigurasi (`config.yaml`)
 
@@ -229,6 +231,8 @@ Local (menggunakan .env):
 ```bash
 cd data-splitter
 ./data-splitter --config config.yaml
+# atau lihat informasi direktori
+./data-splitter --info
 ```
 
 CI (non-interactive):
@@ -238,6 +242,25 @@ CI=true ./data-splitter --config config.yaml >stdout.log 2>stderr.log
 ```
 
 Periksa `logs/data-splitter.log` untuk full structured logs.
+
+## Flag --info
+
+Flag `--info` menampilkan informasi direktori kerja dan direktori proyek:
+
+```bash
+./data-splitter --info
+```
+
+Output:
+```
+working_dir: /path/to/current/directory
+project_dir: /path/to/data-splitter/source
+```
+
+- `working_dir`: Direktori tempat Anda menjalankan perintah data-splitter
+- `project_dir`: Lokasi source code data-splitter (di-set saat build)
+
+Berguna untuk memastikan tool memahami konteks direktori saat dijalankan secara global.
 
 ## Troubleshooting singkat
 
@@ -253,3 +276,5 @@ Periksa `logs/data-splitter.log` untuk full structured logs.
 - `LOG_TAIL_LINES` support untuk tail-on-error
 - `HEARTBEAT_BATCH_INTERVAL` configurable
 - `.env` support via godotenv (tidak menimpa CI env)
+- `--info` flag untuk menampilkan working_dir dan project_dir
+- `--config` flag untuk override path konfigurasi

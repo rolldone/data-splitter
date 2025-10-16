@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -15,11 +16,25 @@ import (
 	"gorm.io/gorm"
 )
 
+var (
+	configPath = flag.String("config", "", "Path to configuration file (default: config.yaml)")
+	showInfo   = flag.Bool("info", false, "Show working directory and project directory information")
+	projectDir string // Set at build time with -ldflags
+)
+
 func main() {
+	flag.Parse()
+
+	// Handle --info flag
+	if *showInfo {
+		displayInfo()
+		return
+	}
+
 	logrus.Info("Starting Data Splitter")
 
 	// Load configuration
-	cfg, err := config.LoadConfig("")
+	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
 		logrus.Fatalf("Failed to load configuration: %v", err)
 	}
@@ -89,6 +104,17 @@ func main() {
 	}
 
 	logrus.Info("Data Splitter completed successfully")
+}
+
+func displayInfo() {
+	workingDir, err := os.Getwd()
+	if err != nil {
+		fmt.Printf("Error getting working directory: %v\n", err)
+		return
+	}
+
+	fmt.Printf("working_dir: %s\n", workingDir)
+	fmt.Printf("project_dir: %s\n", projectDir)
 }
 
 func setupLogging(config *types.Config) {
