@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"data-splitter/internal/config"
 	"data-splitter/internal/database"
@@ -113,8 +115,47 @@ func displayInfo() {
 		return
 	}
 
+	// Get binary location
+	binaryPath, err := os.Executable()
+	if err != nil {
+		binaryPath = "unknown"
+	}
+
+	fmt.Println("=== Data Splitter Information ===")
 	fmt.Printf("working_dir: %s\n", workingDir)
 	fmt.Printf("project_dir: %s\n", projectDir)
+	fmt.Printf("current_binary: %s\n", binaryPath)
+	fmt.Println()
+
+	// Check if dist folder exists, if not, try to build
+	distPath := filepath.Join(projectDir, "dist")
+	if _, err := os.Stat(distPath); os.IsNotExist(err) {
+		fmt.Println("📦 Building cross-platform binaries...")
+		if err := buildCrossPlatform(); err != nil {
+			fmt.Printf("Warning: Could not build binaries: %v\n", err)
+			fmt.Println("Run './build-cross-platform.sh' manually to create dist/ folder")
+		}
+	}
+
+	// Display available downloads
+	fmt.Println("📦 Available Downloads:")
+	displayAvailableBinaries(distPath)
+
+	fmt.Println()
+	fmt.Println("📦 Installation Locations:")
+	fmt.Println("  Linux/macOS: /usr/local/bin/data-splitter")
+	fmt.Println("  Windows:     C:\\Program Files\\data-splitter\\data-splitter.exe")
+	fmt.Println("               or %USERPROFILE%\\bin\\data-splitter.exe")
+	fmt.Println()
+	fmt.Println("📁 Configuration & Logs:")
+	fmt.Println("  Config file: config.yaml (in working directory)")
+	fmt.Println("  Env file:    .env (in working directory)")
+	fmt.Println("  Log file:    logs/data-splitter.log (relative to working directory)")
+	fmt.Println()
+	fmt.Println("💡 Tips:")
+	fmt.Println("  - Place config.yaml and .env in your working directory")
+	fmt.Println("  - Run from any directory after installation")
+	fmt.Println("  - Use --config flag to specify custom config path")
 }
 
 func setupLogging(config *types.Config) {
@@ -243,4 +284,97 @@ func processTableYear(sourceDB *gorm.DB, dbConfig *types.Database, table *types.
 
 	logrus.Infof("Successfully processed table %s for year %d", table.Name, year)
 	return nil
+}
+
+// buildCrossPlatform builds binaries for all supported platforms
+func buildCrossPlatform() error {
+	platforms := []struct {
+		os   string
+		arch string
+	}{
+		{"linux", "amd64"},
+		{"darwin", "amd64"},
+		{"darwin", "arm64"},
+		{"windows", "amd64"},
+	}
+
+	distPath := filepath.Join(projectDir, "dist")
+	if err := os.MkdirAll(distPath, 0755); err != nil {
+		return fmt.Errorf("failed to create dist directory: %w", err)
+	}
+
+	for _, platform := range platforms {
+		binaryName := fmt.Sprintf("data-splitter-%s-%s", platform.os, platform.arch)
+		if platform.os == "windows" {
+			binaryName += ".exe"
+		}
+
+		outputPath := filepath.Join(distPath, binaryName)
+
+		cmd := exec.Command("go", "build",
+			"-ldflags", fmt.Sprintf("-X main.projectDir=%s", projectDir),
+			"-o", outputPath,
+			"./cmd")
+
+		cmd.Env = append(os.Environ(),
+			fmt.Sprintf("GOOS=%s", platform.os),
+			fmt.Sprintf("GOARCH=%s", platform.arch))
+
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to build for %s/%s: %w", platform.os, platform.arch, err)
+		}
+
+		fmt.Printf("  ✓ Built %s\n", binaryName)
+	}
+
+	return nil
+}
+
+// displayAvailableBinaries shows the actual binary files in the dist folder
+func displayAvailableBinaries(distPath string) {
+	files, err := os.ReadDir(distPath)
+	if err != nil {
+		fmt.Printf("  No binaries found in %s\n", distPath)
+		return
+	}
+
+	found := false
+	for _, file := range files {
+		if !file.IsDir() && strings.HasPrefix(file.Name(), "data-splitter-") {
+			fullPath := filepath.Join(distPath, file.Name())
+			fmt.Printf("  %s: %s\n", getPlatformName(file.Name()), fullPath)
+			found = true
+		}
+	}
+
+	if !found {
+		fmt.Printf("  No data-splitter binaries found in %s\n", distPath)
+	}
+}
+
+// getPlatformName extracts platform info from binary filename
+func getPlatformName(filename string) string {
+	// Remove "data-splitter-" prefix and ".exe" suffix
+	name := strings.TrimPrefix(filename, "data-splitter-")
+	name = strings.TrimSuffix(name, ".exe")
+
+	parts := strings.Split(name, "-")
+	if len(parts) >= 2 {
+		os := parts[0]
+		arch := parts[1]
+
+		switch os {
+		case "linux":
+			return fmt.Sprintf("Linux (%s)", arch)
+		case "darwin":
+			if arch == "arm64" {
+				return "macOS (Apple Silicon)"
+			}
+			return fmt.Sprintf("macOS (Intel, %s)", arch)
+		case "windows":
+			return fmt.Sprintf("Windows (%s)", arch)
+		}
+	}
+
+	return filename
 }
