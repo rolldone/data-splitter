@@ -6,6 +6,7 @@ import (
 
 	"data-splitter/pkg/types"
 
+	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v3"
 )
 
@@ -22,9 +23,29 @@ func LoadConfig(configPath string) (*types.Config, error) {
 		return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
 	}
 
+	// Optional: load .env file if present, but do not overwrite existing env vars.
+	// godotenv.Load will set variables; to avoid overwriting we only load into
+	// a map and set missing keys ourselves.
+	if _, err := os.Stat(".env"); err == nil {
+		if m, err := godotenv.Read(".env"); err == nil {
+			for k, v := range m {
+				if os.Getenv(k) == "" {
+					os.Setenv(k, v)
+				}
+			}
+		}
+	}
+
+	// Expand environment variables in the config content so config.yaml can
+	// contain placeholders like ${DATABASE_USER} that are populated from the
+	// process environment (possibly loaded from .env above).
+	expanded := os.Expand(string(data), func(key string) string {
+		return os.Getenv(key)
+	})
+
 	// Parse YAML
 	var config types.Config
-	if err := yaml.Unmarshal(data, &config); err != nil {
+	if err := yaml.Unmarshal([]byte(expanded), &config); err != nil {
 		return nil, fmt.Errorf("failed to parse config YAML: %w", err)
 	}
 

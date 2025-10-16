@@ -4,9 +4,13 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"strings"
+	"time"
 
 	"data-splitter/pkg/types"
+
+	"github.com/briandowns/spinner"
 
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
@@ -14,7 +18,11 @@ import (
 
 // MigrateTableData migrates data from source table to archive table for a specific year
 func MigrateTableData(sourceDB *gorm.DB, archiveDB *gorm.DB, table *types.Table, year int, config *types.ArchiveOptions) error {
+	startTime := time.Now()
 	log.Printf("Starting data migration for table %s, year %d", table.Name, year)
+
+	// Emit an initial one-line PROGRESS message so pipelines can detect start
+	fmt.Printf("PROGRESS table=%s year=%d processed=%d total=%d batch=%d status=started\n", table.Name, year, 0, 0, 0)
 
 	// Get table columns
 	columns, err := GetTableColumns(sourceDB, table.Name)
@@ -34,6 +42,35 @@ func MigrateTableData(sourceDB *gorm.DB, archiveDB *gorm.DB, table *types.Table,
 	}
 
 	log.Printf("Migrating %d rows for table %s, year %d", totalRows, table.Name, year)
+
+	// Setup interactive progress UI (progress bar + optional spinner)
+	var sp *spinner.Spinner
+
+	// Spinner enabled by default (both pipeline and local). Disable with NO_SPINNER=1.
+	noSpinner := os.Getenv("NO_SPINNER") != ""
+	noProgress := os.Getenv("NO_PROGRESS") != ""
+
+	if noProgress {
+		log.Printf("Progress disabled via NO_PROGRESS")
+	}
+	if noSpinner {
+		log.Printf("Spinner disabled via NO_SPINNER")
+	}
+
+	if !noSpinner {
+		// spinner is cosmetic; keep small interval and write to Stdout to avoid
+		// interleaving with log file output. Enabled by default for both pipeline
+		// and local runs unless NO_SPINNER is set.
+		sp = spinner.New(spinner.CharSets[14], 120*time.Millisecond)
+		// Write spinner to stderr so pipeline stdout remains available for
+		// stable one-line progress messages. Many CI systems capture stdout for
+		// step output parsing; writing dynamic spinner chars to stderr avoids
+		// corrupting that stream.
+		sp.Writer = os.Stderr
+		sp.Suffix = fmt.Sprintf(" Loading %s", table.Name)
+		sp.Start()
+		defer sp.Stop()
+	}
 
 	// Build merge insert query (handles existing data)
 	insertQuery, err := BuildMergeInsertQuery(table.Name, columns)
@@ -64,23 +101,62 @@ func MigrateTableData(sourceDB *gorm.DB, archiveDB *gorm.DB, table *types.Table,
 		rowsAffected, err := migrateBatch(sourceDB, archiveDB, table, year, columns, insertQuery, batchSize, offset)
 		if err != nil {
 			log.Printf("ERROR: Failed to migrate batch %d at offset %d: %v", batchCount, offset, err)
-			return fmt.Errorf("failed to migrate batch at offset %d: %w", offset, err)
+			// Print recent logs to stderr for pipeline visibility
+			PrintRecentLogTail(200)
+			return FatalMigrationError{Err: fmt.Errorf("failed to migrate batch at offset %d: %w", offset, err)}
 		}
 
 		migratedRows += rowsAffected
 		offset += batchSize
 
+		// Update UI (spinner suffix only; progress bar removed)
+		if sp != nil {
+			sp.Suffix = fmt.Sprintf(" Loading %s - %d/%d (batch %d)", table.Name, migratedRows, totalRows, batchCount)
+		}
+
 		log.Printf("Completed batch %d: migrated %d/%d rows for table %s, year %d", batchCount, migratedRows, totalRows, table.Name, year)
 
-		// Heartbeat every 10 batches
-		if batchCount%10 == 0 {
+		// Determine heartbeat interval (configured via archive options; default 10)
+		heartbeatInterval := config.HeartbeatBatchInterval
+		if heartbeatInterval <= 0 {
+			heartbeatInterval = 10
+		}
+
+		// Heartbeat every N batches
+		if batchCount%heartbeatInterval == 0 {
+			// Log heartbeat to log file
 			log.Printf("HEARTBEAT: Processed %d batches, %d/%d rows for table %s, year %d", batchCount, migratedRows, totalRows, table.Name, year)
+			// Also emit a stable one-line progress message to stdout so pipelines
+			// that capture stdout can read progress without dealing with ANSI
+			// or carriage returns.
+			fmt.Printf("PROGRESS table=%s year=%d processed=%d total=%d batch=%d\n",
+				table.Name, year, migratedRows, totalRows, batchCount)
 		}
 	}
 
-	log.Printf("Completed data migration for table %s, year %d: %d rows migrated", table.Name, year, migratedRows)
+	// progress bar removed; spinner will be stopped by defer
+
+	duration := time.Since(startTime)
+	log.Printf("Completed data migration for table %s, year %d: %d rows migrated (duration=%s)", table.Name, year, migratedRows, duration)
+
+	// Emit a final progress line and a FINAL summary so pipelines can detect completion
+	fmt.Printf("PROGRESS table=%s year=%d processed=%d total=%d batch=%d status=completed duration=%s\n",
+		table.Name, year, migratedRows, totalRows, batchCount, duration)
+	// Also emit a concise FINAL line (machine-friendly)
+	fmt.Printf("FINAL table=%s year=%d processed=%d duration=%s exit=0\n", table.Name, year, migratedRows, duration)
+
 	return nil
 }
+
+// FatalMigrationError marks an error as fatal such that the caller should exit
+// immediately (non-zero). We use this for critical failures where continuing
+// processing would be unsafe or misleading.
+type FatalMigrationError struct {
+	Err error
+}
+
+func (e FatalMigrationError) Error() string { return e.Err.Error() }
+func (e FatalMigrationError) Unwrap() error { return e.Err }
 
 // migrateBatch migrates a single batch of data
 func migrateBatch(sourceDB *gorm.DB, archiveDB *gorm.DB, table *types.Table, year int, columns []ColumnInfo, insertQuery string, batchSize int, offset int) (int64, error) {
@@ -95,6 +171,8 @@ func migrateBatch(sourceDB *gorm.DB, archiveDB *gorm.DB, table *types.Table, yea
 	rows, err := sourceDB.Raw(selectQuery).Rows()
 	if err != nil {
 		log.Printf("ERROR: Failed to execute select query: %v", err)
+		// print recent logs for pipeline visibility
+		PrintRecentLogTail(200)
 		return 0, fmt.Errorf("failed to execute select query: %w", err)
 	}
 	defer rows.Close()
@@ -117,6 +195,8 @@ func migrateBatch(sourceDB *gorm.DB, archiveDB *gorm.DB, table *types.Table, yea
 		// Scan row into values
 		if err := rows.Scan(valuePtrs...); err != nil {
 			log.Printf("ERROR: Failed to scan row: %v", err)
+			// print recent logs for pipeline visibility
+			PrintRecentLogTail(200)
 			return 0, fmt.Errorf("failed to scan row: %w", err)
 		}
 
@@ -138,6 +218,8 @@ func migrateBatch(sourceDB *gorm.DB, archiveDB *gorm.DB, table *types.Table, yea
 		// Don't return error here - partial success is acceptable
 		// Only return error if ALL rows failed (handled in executeBatchInsert)
 		if err.Error() == fmt.Sprintf("all %d rows failed to insert", rowCount) {
+			// print recent logs for pipeline visibility
+			PrintRecentLogTail(200)
 			return 0, fmt.Errorf("failed to execute batch insert: %w", err)
 		}
 	}

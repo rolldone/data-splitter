@@ -1,0 +1,8 @@
+.env
+logs/
+# Ignore build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+/data-splitter

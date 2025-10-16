@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -59,7 +61,19 @@ func main() {
 		for yearIndex, year := range cfg.Archive.Years {
 			logrus.Infof("Processing year %d/%d: %d for table %s", yearIndex+1, totalYears, year, table.Name)
 
+			// Ensure heartbeat interval from processing config is available to archive options
+			if cfg.Archive.Options.HeartbeatBatchInterval == 0 {
+				cfg.Archive.Options.HeartbeatBatchInterval = cfg.Processing.HeartbeatBatchInterval
+			}
+
 			if err := processTableYear(sourceDB, &cfg.Database, &table, year, &cfg.Archive.Options); err != nil {
+				// If the error (possibly wrapped) contains a FatalMigrationError,
+				// print to stderr and exit non-zero so the pipeline step fails.
+				var fmErr database.FatalMigrationError
+				if errors.As(err, &fmErr) {
+					fmt.Fprintf(os.Stderr, "FATAL: %v\n", fmErr.Error())
+					os.Exit(1)
+				}
 				if cfg.Processing.ContinueOnError {
 					logrus.Errorf("Failed to process table %s year %d: %v", table.Name, year, err)
 					continue
@@ -131,7 +145,15 @@ func setupLogging(config *types.Config) {
 		return
 	}
 
+	// Set both logrus and standard library log to the same file so that
+	// Set both logrus and standard library log to the same file so that
+	// interactive spinner/progress output can remain on stdout while all
+	// structured logs go to the file. The UI components in `migration.go`
+	// (spinner and progress bar) explicitly write to stdout; this prevents
+	// interleaving between interactive terminal output and the log file
+	// which may be inspected or collected by CI runners.
 	logrus.SetOutput(logFile)
+	log.SetOutput(logFile)
 	logrus.Infof("Logging to file: %s", logPath)
 }
 

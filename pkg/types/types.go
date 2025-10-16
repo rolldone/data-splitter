@@ -40,6 +40,10 @@ type ArchiveOptions struct {
 	DeleteAfterArchive bool `yaml:"delete_after_archive"`
 	CreateArchiveDB    bool `yaml:"create_archive_db"`
 	DryRun             bool `yaml:"dry_run"`
+	// HeartbeatBatchInterval controls how many batches between PROGRESS heartbeats
+	// This value is supplied from the top-level processing config when the
+	// migration is started.
+	HeartbeatBatchInterval int `yaml:"heartbeat_batch_interval"`
 }
 
 // Processing holds processing configuration
@@ -47,6 +51,8 @@ type Processing struct {
 	LogLevel        string `yaml:"log_level"`
 	LogPath         string `yaml:"log_path"`
 	ContinueOnError bool   `yaml:"continue_on_error"`
+	// HeartbeatBatchInterval controls how many batches between PROGRESS heartbeats
+	HeartbeatBatchInterval int `yaml:"heartbeat_batch_interval"`
 }
 
 // TableInfo holds information about a database table

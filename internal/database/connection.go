@@ -3,6 +3,7 @@ package database
 import (
 	"fmt"
 	"log"
+	"os"
 	"strings"
 
 	"data-splitter/pkg/types"
@@ -15,8 +16,18 @@ import (
 // ConnectSourceDB establishes connection to the source database
 func ConnectSourceDB(config *types.Database) (*gorm.DB, error) {
 	dsn := buildDSN(config, config.SourceDB)
+
+	// Control GORM SQL logging via environment variable LOG_LEVEL.
+	// Default: silent (avoid noisy SELECT logs). Enable verbose SQL output
+	// only when explicitly asked (LOG_LEVEL=debug).
+	logLevel := strings.ToLower(os.Getenv("LOG_LEVEL"))
+	gormLogMode := logger.Silent
+	if logLevel == "debug" {
+		gormLogMode = logger.Info
+	}
+
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+		Logger: logger.Default.LogMode(gormLogMode),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to source database: %w", err)
@@ -30,8 +41,16 @@ func ConnectSourceDB(config *types.Database) (*gorm.DB, error) {
 func ConnectArchiveDB(config *types.Database, table *types.Table, year int) (*gorm.DB, error) {
 	archiveDB := BuildArchiveDBName(table.ArchivePattern, year)
 	dsn := buildDSN(config, archiveDB)
+
+	// Mirror the same GORM log level selection as ConnectSourceDB
+	logLevel := strings.ToLower(os.Getenv("LOG_LEVEL"))
+	gormLogMode := logger.Silent
+	if logLevel == "debug" {
+		gormLogMode = logger.Info
+	}
+
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+		Logger: logger.Default.LogMode(gormLogMode),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to archive database %s: %w", archiveDB, err)

@@ -1,5 +1,90 @@
 # Data Splitter
 
+Panduan singkat untuk membangun, menjalankan, dan memverifikasi UI progress (progress bar + spinner) serta pemisahan log di project `data-splitter`.
+
+Semua instruksi ada dalam Bahasa Indonesia dan fokus pada verifikasi bahwa:
+- UI interaktif (progress bar + spinner) menulis ke stdout,
+- Semua log terstruktur (logrus + standard log) ditulis ke file log (default `logs/data-splitter.log`) sehingga tidak mengacaukan output pipeline/runner.
+
+Catatan singkat soal perilaku:
+- UI akan otomatis dinonaktifkan jika tidak berjalan di TTY atau jika environment `CI=true`.
+- Override manual tersedia dengan `NO_SPINNER=1` dan/atau `NO_PROGRESS=1`.
+
+Prasyarat
+- Go toolchain terpasang (go 1.18+ direkomendasikan).
+
+1) Build binary
+
+Jalankan dari folder project:
+
+```bash
+cd /path/to/data-splitter
+go build -o data-splitter ./...
+```
+
+2) Run interaktif (lihat progress & spinner)
+
+Jalankan binary seperti biasa (tambahkan `--config` jika repo kamu memakai flag):
+
+```bash
+./data-splitter
+# atau jika perlu config
+./data-splitter --config config.yaml
+```
+
+Yang harus diverifikasi:
+- Di terminal seharusnya terlihat progress bar yang bergerak dan spinner yang menunjukkan aktivtas.
+- File log default ada di `logs/data-splitter.log`. Periksa dengan:
+
+```bash
+tail -n 200 logs/data-splitter.log
+```
+
+Pastikan log hanya berisi entri structured (Info/Debug/Warning) bukan karakter progress bar.
+
+3) Run non-interactive / CI mode
+
+Untuk mensimulasikan environment CI (UI harus auto-disable):
+
+```bash
+CI=true ./data-splitter
+```
+
+Atau paksa disable UI dengan env:
+
+```bash
+NO_SPINNER=1 NO_PROGRESS=1 ./data-splitter
+```
+
+Verifikasi:
+- Di terminal seharusnya tidak ada progress bar atau spinner.
+- Semua log tetap ada di file `logs/data-splitter.log`.
+
+4) Menangkap stdout untuk melihat apa yang pipeline akan lihat
+
+Jika pipeline capture stdout, jalankan:
+
+```bash
+./data-splitter > stdout.capture 2>&1
+# interactive run akan menulis UI ke stdout (expected)
+
+CI=true ./data-splitter > stdout.capture 2>&1
+# CI run seharusnya punya sedikit atau tidak ada UI artifacts di stdout.capture
+```
+
+5) Troubleshooting singkat
+
+- Jika kamu melihat SQL atau keluaran besar lain di stdout, pastikan `setupLogging` di `cmd/main.go` dieksekusi sebelum koneksi DB dibuat.
+- Pastikan tidak ada kode yang secara eksplisit menulis log ke stdout (fmt.Print*). Saya sudah memeriksa repo dan tidak menemukan `fmt.Print*` di file utama.
+
+6) Opsional: verifikasi otomatis (skrip)
+
+Saya bisa menambahkan skrip helper `scripts/verify-ui.sh` yang menjalankan langkah-langkah di atas otomatis dan menuliskan ringkasan. Beri tahu jika kamu mau saya tambahkan.
+
+--
+Dokumentasi ini menambahkan instruksi verifikasi UI vs log dan env override. Jika kamu ingin saya commit skrip verifikasi otomatis atau menambahkan contoh konfigurasi `config.sample.yaml` yang menampilkan opsi `NO_SPINNER`/`NO_PROGRESS`, beri tahu dan saya akan tambahkan.
+# Data Splitter
+
 A Go-based tool for automated database archiving with yearly data splitting. This tool migrates data from source tables to year-specific archive databases while maintaining table schemas and relationships.
 
 ## Features
@@ -185,6 +270,50 @@ The application uses structured logging with the following levels:
 - `fatal`: Critical errors that stop execution
 
 Set log level via `LOG_LEVEL` environment variable or `processing.log_level` config.
+
+### Additional runtime signals for CI / parsers
+
+- `LOG_TAIL_LINES` (env): When a fatal error occurs the program prints a tail of the
+  structured log file to stderr to aid debugging. `LOG_TAIL_LINES` lets you control how
+  many lines are printed. Example: `LOG_TAIL_LINES=50` (default depends on caller; the
+  code uses 200 when not overridden by env).
+
+- `PROGRESS` / `FINAL` lines (stdout): The program emits machine-friendly one-line
+  progress heartbeats to stdout so CI runners or parsers can track progress without
+  being confused by interactive ANSI output. Example lines:
+
+```
+PROGRESS table=users year=2025 processed=0 total=0 batch=0 status=started
+PROGRESS table=users year=2025 processed=1000 total=96716 batch=10
+... (periodic heartbeat)
+PROGRESS table=users year=2025 processed=96716 total=96716 batch=97 status=completed duration=1h23m45s
+FINAL table=users year=2025 processed=96716 duration=1h23m45s exit=0
+```
+
+- `HEARTBEAT_BATCH_INTERVAL` (concept): The heartbeat is emitted every N batches. By
+  default the code emits a heartbeat every 10 batches. This value may later be
+  configurable via an env var (e.g., `HEARTBEAT_BATCH_INTERVAL`) if you want a
+  different frequency for long/short batch sizes. The heartbeat frequency controls
+  how often you see `PROGRESS` lines — increasing it reduces stdout churn but
+  provides coarser progress updates.
+
+### Using secrets and placeholders in config.yaml
+
+If you want to commit `config.yaml` but keep secrets out of the repo, you can use
+OS environment variable placeholders in the YAML and store secrets in a local
+`.env` file (not committed). Example in `config.yaml`:
+
+```yaml
+database:
+  host: "${DB_HOST}"
+  user: "${DB_USER}"
+  password: "${DB_PASSWORD}"
+```
+
+The loader will automatically load a `.env` file (if present) and expand
+`${VAR}` placeholders using the process environment. `.env` values do not
+override existing environment variables; this allows CI-provided env to take
+precedence.
 
 ## Error Handling
 

@@ -48,6 +48,7 @@ processing:
   log_level: "info"               # debug|info|warn|error
   log_path: "logs/data-splitter.log"
   continue_on_error: false         # if true, continue on non-fatal row errors
+  heartbeat_batch_interval: 10     # how many batches between PROGRESS heartbeats
 
 # Optional: runtime overrides (examples for running in CI)
 # You can set environment vars or pass CLI flags to override config values.
