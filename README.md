@@ -247,9 +247,3 @@ Periksa `logs/data-splitter.log` untuk full structured logs.
 - `LOG_TAIL_LINES` support untuk tail-on-error
 - `HEARTBEAT_BATCH_INTERVAL` configurable
 - `.env` support via godotenv (tidak menimpa CI env)
-
----
-
-Jika mau, saya bisa menambahkan skrip `scripts/verify-ui.sh` untuk memvalidasi
-perilaku interactive vs CI, atau menambahkan helper untuk membaca secret file
-otomatis dari config (file-ref). Beritahu saya mana yang diinginkan.
