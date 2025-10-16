@@ -13,9 +13,9 @@ echo "🔨 Building data-splitter for multiple platforms..."
 # Create output directory
 mkdir -p $OUTPUT_DIR
 
-# Build for Linux (amd64)
+# Build for Linux (amd64) - Static linking for portability
 echo "📦 Building for Linux (amd64)..."
-GOOS=linux GOARCH=amd64 go build -ldflags "-X main.projectDir=$PROJECT_DIR" -o $OUTPUT_DIR/data-splitter-linux-amd64 ./cmd
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -ldflags "-X main.projectDir=$PROJECT_DIR -extldflags '-static'" -o $OUTPUT_DIR/data-splitter-linux-amd64 ./cmd
 
 # Build for Windows (amd64)
 echo "📦 Building for Windows (amd64)..."

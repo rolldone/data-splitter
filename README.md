@@ -57,6 +57,10 @@ Script `build-cross-platform.sh` akan membuat binary untuk semua platform:
 
 Binary akan tersedia di folder `dist/` untuk Linux, Windows, dan macOS.
 
+### Portabilitas Binary
+
+Binary Linux dibuat dengan **static linking** untuk memastikan kompatibilitas di berbagai distribusi Linux tanpa masalah dependensi GLIBC. Binary ini dapat berjalan di sistem Linux dengan versi GLIBC yang berbeda.
+
 ## Instalasi Global
 
 ### Linux/macOS

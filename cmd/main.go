@@ -311,14 +311,28 @@ func buildCrossPlatform() error {
 
 		outputPath := filepath.Join(distPath, binaryName)
 
-		cmd := exec.Command("go", "build",
-			"-ldflags", fmt.Sprintf("-X main.projectDir=%s", projectDir),
-			"-o", outputPath,
-			"./cmd")
-
-		cmd.Env = append(os.Environ(),
-			fmt.Sprintf("GOOS=%s", platform.os),
-			fmt.Sprintf("GOARCH=%s", platform.arch))
+		var cmd *exec.Cmd
+		if platform.os == "linux" {
+			// Use static linking for Linux to ensure portability across different GLIBC versions
+			cmd = exec.Command("go", "build",
+				"-a",
+				"-ldflags", fmt.Sprintf("-X main.projectDir=%s -extldflags '-static'", projectDir),
+				"-o", outputPath,
+				"./cmd")
+			cmd.Env = append(os.Environ(),
+				"CGO_ENABLED=0",
+				fmt.Sprintf("GOOS=%s", platform.os),
+				fmt.Sprintf("GOARCH=%s", platform.arch))
+		} else {
+			// Standard build for other platforms
+			cmd = exec.Command("go", "build",
+				"-ldflags", fmt.Sprintf("-X main.projectDir=%s", projectDir),
+				"-o", outputPath,
+				"./cmd")
+			cmd.Env = append(os.Environ(),
+				fmt.Sprintf("GOOS=%s", platform.os),
+				fmt.Sprintf("GOARCH=%s", platform.arch))
+		}
 
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("failed to build for %s/%s: %w", platform.os, platform.arch, err)
